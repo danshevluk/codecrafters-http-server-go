@@ -23,30 +23,41 @@ func main() {
 		os.Exit(1)
 	}
 
+	err = handleConnection(conn)
+	if err != nil {
+		fmt.Println("Error handling connection: ", err.Error())
+		os.Exit(1)
+	}
+}
+
+func handleConnection(conn net.Conn) error {
 	readBuf := make([]byte, 1024)
+	var err error
 	_, err = conn.Read(readBuf)
 	if err != nil {
-		fmt.Println("Error reading: ", err.Error())
-		os.Exit(1)
+		return err
 	}
 	requestLines := strings.Split(string(readBuf), newline)
 	path := extractPath(&requestLines)
 
 	if path == "/" {
-		writeResponse(conn, "HTTP/1.1 200 OK"+newline+newline)
+		err = writeResponse(conn, "HTTP/1.1 200 OK"+newline+newline)
 	} else {
-		writeResponse(conn, "HTTP/1.1 404 Not Found"+newline+newline)
+		err = writeResponse(conn, "HTTP/1.1 404 Not Found"+newline+newline)
 	}
+
+	return err
 }
 
 func extractPath(requestLines *[]string) string {
 	return strings.Split((*requestLines)[0], " ")[1]
 }
 
-func writeResponse(conn net.Conn, response string) {
+func writeResponse(conn net.Conn, response string) error {
 	_, err := conn.Write([]byte(response))
 	if err != nil {
-		fmt.Println("Error writing to connection: ", err.Error())
-		os.Exit(1)
+		return err
 	}
+
+	return nil
 }
