@@ -90,7 +90,7 @@ func handleRequest(request Request) Response {
 		}
 		return Response{
 			StatusCode: OK,
-		}.withBody(pathComponents[1], "text/plain")
+		}.withBody(strings.Join(pathComponents[1:], "/"), "text/plain")
 	default:
 		return Response{StatusCode: NotFound}
 	}
