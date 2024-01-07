@@ -9,7 +9,6 @@ import (
 )
 
 const newline = "\r\n"
-const defaultBufSize = 4096
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
@@ -102,6 +101,8 @@ func (r Response) encode() []byte {
 	for k, v := range r.Headers {
 		response += fmt.Sprintf("%s: %s", k, v) + newline
 	}
+
+	response += newline
 
 	return []byte(response)
 }
