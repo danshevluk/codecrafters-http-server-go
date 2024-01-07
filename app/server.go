@@ -41,7 +41,7 @@ func handleConnection(conn net.Conn) error {
 	}
 
 	// Parse request
-	requestLines := strings.Split(string(readBuf), newline)
+	requestLines := strings.Split(string(readBuf), newline+newline)
 	request, err := parseRequest(requestLines)
 	if err != nil {
 		return err
