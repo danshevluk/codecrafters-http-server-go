@@ -93,7 +93,7 @@ func handleRequest(request Request) Response {
 		return Response{
 			StatusCode: OK,
 		}.withBody(strings.Join(pathComponents[1:], "/"), "text/plain")
-	case "user_agent":
+	case "user-agent":
 		if request.Headers == nil || request.Headers["User-Agent"] == "" {
 			return Response{StatusCode: BadRequest}
 		}
