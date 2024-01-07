@@ -41,14 +41,14 @@ func handleConnection(conn net.Conn) error {
 	}
 
 	// Parse request
-	requestLines := strings.Split(string(readBuf), newline+newline)
-	request, err := parseRequest(requestLines)
-	if err != nil {
+	request, err := parseRequest(readBuf)
+	if request == nil || err != nil {
 		return err
 	}
+	unwrapedRequest := *request
 
 	// Write response
-	response := handleRequest(request)
+	response := handleRequest(unwrapedRequest)
 	err = response.write(conn)
 	if err != nil {
 		return err
@@ -122,43 +122,66 @@ type Request struct {
 	Headers map[string]string
 }
 
-func parseRequest(requestLines []string) (Request, error) {
+func parseRequest(requestBytes []byte) (*Request, error) {
+	requestParts := strings.SplitN(string(requestBytes), newline+newline, 2)
+	if len(requestParts) == 0 {
+		return nil, errors.New("request is empty")
+	}
+
+	statusLineAndHeaders := strings.Split(requestParts[0], newline)
+	if len(statusLineAndHeaders) == 0 {
+		return nil, errors.New("status line not found")
+	}
+
 	var request Request
 	var err error
 
-	request.Path, err = extractPath(requestLines)
-	request.Headers, err = extractHeaders(requestLines)
+	statusLine := statusLineAndHeaders[0]
+	request.Path, err = extractPath(statusLine)
 	if err != nil {
-		return request, err
+		return nil, err
+	}
+	if len(statusLineAndHeaders) < 2 {
+		return &request, nil
+	}
+	requestHeaders := statusLineAndHeaders[1:]
+
+	var headers []string
+	for i, line := range requestHeaders {
+		if strings.TrimSpace(line) == "" {
+			headers = requestHeaders[:i]
+			break
+		}
 	}
 
-	return request, nil
+	request.Headers, err = extractHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+
+	return &request, nil
 }
 
-func extractPath(requestLines []string) (string, error) {
-	if len(requestLines) < 1 {
-		return "", errors.New("path not found")
-	}
-
-	fields := strings.Fields(requestLines[0])
-	if len(requestLines) < 2 {
+func extractPath(statusLine string) (string, error) {
+	fields := strings.Fields(statusLine)
+	if len(fields) < 2 {
 		return "", errors.New("fields not found")
 	}
 
 	return fields[1], nil
 }
 
-func extractHeaders(requestLines []string) (map[string]string, error) {
+func extractHeaders(headerLines []string) (map[string]string, error) {
 	headers := make(map[string]string)
 
-	for _, line := range requestLines[1:] {
-		if line == "" {
+	for _, line := range headerLines {
+		if strings.TrimSpace(line) == "" {
 			break
 		}
 
-		fields := strings.Split(line, ":")
+		fields := strings.SplitN(line, ":", 2)
 		if len(fields) < 2 {
-			return headers, errors.New("invalid header")
+			continue
 		}
 
 		headers[fields[0]] = fields[1]
