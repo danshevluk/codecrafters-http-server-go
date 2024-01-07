@@ -150,8 +150,10 @@ func (r Response) encode() []byte {
 
 	var result []byte
 	result = append(result, []byte(responseString)...)
-	result = append(result, r.Body...)
-	result = append(result, []byte(newline)...)
+	if r.Body != nil {
+		result = append(result, r.Body...)
+		result = append(result, []byte(newline)...)
+	}
 
 	fmt.Println("Encoded response: ")
 	fmt.Println(string(result))
