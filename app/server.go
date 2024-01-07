@@ -62,6 +62,8 @@ func handleConnection(conn net.Conn) error {
 }
 
 func handleRequest(request Request) Response {
+	fmt.Println("Request: ")
+	fmt.Println(request)
 	if len(request.Path) == 0 || request.Path[0] != '/' {
 		return Response{StatusCode: BadRequest}
 	}
@@ -91,6 +93,15 @@ func handleRequest(request Request) Response {
 		return Response{
 			StatusCode: OK,
 		}.withBody(strings.Join(pathComponents[1:], "/"), "text/plain")
+	case "user_agent":
+		if request.Headers == nil || request.Headers["User-Agent"] == "" {
+			return Response{StatusCode: BadRequest}
+		}
+
+		userAgent := request.Headers["User-Agent"]
+		return Response{
+			StatusCode: OK,
+		}.withBody(userAgent, "text/plain")
 	default:
 		return Response{StatusCode: NotFound}
 	}
@@ -198,17 +209,8 @@ func parseRequest(requestBytes []byte) (*Request, error) {
 	if len(statusLineAndHeaders) < 2 {
 		return &request, nil
 	}
-	requestHeaders := statusLineAndHeaders[1:]
-
-	var headers []string
-	for i, line := range requestHeaders {
-		if strings.TrimSpace(line) == "" {
-			headers = requestHeaders[:i]
-			break
-		}
-	}
-
-	request.Headers, err = extractHeaders(headers)
+	requestHeadersData := statusLineAndHeaders[1:]
+	request.Headers, err = extractHeaders(requestHeadersData)
 	if err != nil {
 		return nil, err
 	}
@@ -229,11 +231,12 @@ func extractHeaders(headerLines []string) (map[string]string, error) {
 	headers := make(map[string]string)
 
 	for _, line := range headerLines {
-		if strings.TrimSpace(line) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			break
 		}
 
-		fields := strings.SplitN(line, ":", 2)
+		fields := strings.SplitN(line, ": ", 2)
 		if len(fields) < 2 {
 			continue
 		}
