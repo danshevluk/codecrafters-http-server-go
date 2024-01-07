@@ -25,15 +25,18 @@ func main() {
 			os.Exit(1)
 		}
 
-		err = handleConnection(conn)
-		if err != nil {
-			fmt.Println("Error handling connection: ", err.Error())
-			os.Exit(1)
-		}
+		go handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) error {
+func handleConnection(conn net.Conn) {
+	err := processConnection(conn)
+	if err != nil {
+		fmt.Println("Error handling connection: ", err.Error())
+	}
+}
+
+func processConnection(conn net.Conn) error {
 	defer conn.Close()
 
 	// Read bytes
