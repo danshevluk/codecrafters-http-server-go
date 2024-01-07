@@ -18,20 +18,24 @@ func main() {
 	}
 	defer l.Close()
 
-	conn, err := l.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
-	}
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
 
-	err = handleConnection(conn)
-	if err != nil {
-		fmt.Println("Error handling connection: ", err.Error())
-		os.Exit(1)
+		err = handleConnection(conn)
+		if err != nil {
+			fmt.Println("Error handling connection: ", err.Error())
+			os.Exit(1)
+		}
 	}
 }
 
 func handleConnection(conn net.Conn) error {
+	defer conn.Close()
+
 	// Read bytes
 	readBuf := make([]byte, 1024)
 	_, err := conn.Read(readBuf)
@@ -58,9 +62,35 @@ func handleConnection(conn net.Conn) error {
 }
 
 func handleRequest(request Request) Response {
-	switch request.Path {
+	if len(request.Path) == 0 || request.Path[0] != '/' {
+		return Response{StatusCode: BadRequest}
+	}
+
+	rawPathComponents := strings.Split(request.Path, "/")
+	pathComponents := make([]string, 0, len(rawPathComponents))
+
+	// Filter empty strings from path components
+	for _, component := range rawPathComponents {
+		if component == "" {
+			continue
+		}
+		pathComponents = append(pathComponents, component)
+	}
+
+	if len(pathComponents) == 0 {
+		pathComponents = append(pathComponents, "/")
+	}
+
+	switch pathComponents[0] {
 	case "/":
 		return Response{StatusCode: OK}
+	case "echo":
+		if len(pathComponents) < 2 {
+			return Response{StatusCode: BadRequest}
+		}
+		return Response{
+			StatusCode: OK,
+		}.withBody(pathComponents[1], "text/plain")
 	default:
 		return Response{StatusCode: NotFound}
 	}
@@ -71,17 +101,21 @@ func handleRequest(request Request) Response {
 type Response struct {
 	StatusCode int
 	Headers    map[string]string
+	Body       []byte
 }
 
 const (
-	OK       = 200
-	NotFound = 404
+	OK         = 200
+	BadRequest = 400
+	NotFound   = 404
 )
 
 func (r Response) statusText() string {
 	switch r.StatusCode {
 	case OK:
 		return "OK"
+	case BadRequest:
+		return "Bad Request"
 	case NotFound:
 		return "Not Found"
 	default:
@@ -92,19 +126,38 @@ func (r Response) statusText() string {
 const protocol = "HTTP/1.1"
 
 func (r Response) encode() []byte {
-	var response string
+	var responseString string
 
 	// Status Line
-	response += fmt.Sprintf("%s %v %s", protocol, r.StatusCode, r.statusText()) + newline
+	responseString += fmt.Sprintf("%s %v %s", protocol, r.StatusCode, r.statusText()) + newline
 
 	// Headers
 	for k, v := range r.Headers {
-		response += fmt.Sprintf("%s: %s", k, v) + newline
+		responseString += fmt.Sprintf("%s: %s", k, v) + newline
 	}
+	responseString += newline
 
-	response += newline
+	var result []byte
+	result = append(result, []byte(responseString)...)
+	result = append(result, r.Body...)
+	result = append(result, []byte(newline)...)
 
-	return []byte(response)
+	fmt.Println("Encoded response: ")
+	fmt.Println(string(result))
+	return result
+}
+
+func (r Response) withBody(s string, contentType string) Response {
+	byteBody := []byte(s)
+
+	r.Body = byteBody
+
+	if r.Headers == nil {
+		r.Headers = make(map[string]string)
+	}
+	r.Headers["Content-Length"] = fmt.Sprintf("%v", len(byteBody))
+	r.Headers["Content-Type"] = contentType
+	return r
 }
 
 func (r Response) write(conn net.Conn) error {
@@ -169,7 +222,7 @@ func extractPath(statusLine string) (string, error) {
 		return "", errors.New("fields not found")
 	}
 
-	return fields[1], nil
+	return strings.TrimSpace(fields[1]), nil
 }
 
 func extractHeaders(headerLines []string) (map[string]string, error) {
