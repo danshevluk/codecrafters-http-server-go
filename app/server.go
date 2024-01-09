@@ -2,15 +2,23 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 const newline = "\r\n"
 
+var storageDirectory *string
+
 func main() {
+	// Parse CLI flags
+	storageDirectory = flag.String("directory", "storage", "Storage directory")
+	flag.Parse()
+
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
@@ -95,7 +103,7 @@ func handleRequest(request Request) Response {
 		}
 		return Response{
 			StatusCode: OK,
-		}.withBody(strings.Join(pathComponents[1:], "/"), "text/plain")
+		}.withStringBody(strings.Join(pathComponents[1:], "/"), "text/plain")
 	case "user-agent":
 		if request.Headers == nil || request.Headers["User-Agent"] == "" {
 			return Response{StatusCode: BadRequest}
@@ -104,7 +112,27 @@ func handleRequest(request Request) Response {
 		userAgent := request.Headers["User-Agent"]
 		return Response{
 			StatusCode: OK,
-		}.withBody(userAgent, "text/plain")
+		}.withStringBody(userAgent, "text/plain")
+	case "file":
+		if len(pathComponents) < 2 {
+			return Response{StatusCode: BadRequest}
+		}
+
+		filePath := strings.Join(pathComponents[1:], "/")
+		directory := *storageDirectory
+		path := filepath.Join(directory, filePath)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return Response{StatusCode: NotFound}
+		}
+
+		fileContents, err := os.ReadFile(path)
+		if err != nil {
+			return Response{StatusCode: ServerErr}
+		}
+
+		return Response{
+			StatusCode: OK,
+		}.withBody(fileContents, "application/octet-stream")
 	default:
 		return Response{StatusCode: NotFound}
 	}
@@ -122,6 +150,7 @@ const (
 	OK         = 200
 	BadRequest = 400
 	NotFound   = 404
+	ServerErr  = 500
 )
 
 func (r Response) statusText() string {
@@ -132,6 +161,8 @@ func (r Response) statusText() string {
 		return "Bad Request"
 	case NotFound:
 		return "Not Found"
+	case ServerErr:
+		return "Internal Server Error"
 	default:
 		return ""
 	}
@@ -163,8 +194,12 @@ func (r Response) encode() []byte {
 	return result
 }
 
-func (r Response) withBody(s string, contentType string) Response {
-	byteBody := []byte(s)
+func (r Response) withStringBody(s string, contentType string) Response {
+	return r.withBody([]byte(s), contentType)
+}
+
+func (r Response) withBody(data []byte, contentType string) Response {
+	byteBody := data
 
 	r.Body = byteBody
 
