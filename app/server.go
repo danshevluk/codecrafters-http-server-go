@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -16,14 +17,24 @@ const newline = "\r\n"
 var storageDirectory *string
 
 func main() {
-	// Parse CLI flags
 	storageDirectory = flag.String("directory", "storage", "Storage directory")
 	flag.Parse()
 
-	l, err := net.Listen("tcp", "0.0.0.0:4221")
+	host := "0.0.0.0"
+	err := serve(host, 4221)
 	if err != nil {
-		fmt.Println("Failed to bind to port 4221")
+		fmt.Println("Error serving: ", err.Error())
 		os.Exit(1)
+	}
+}
+
+func serve(host string, port uint16) error {
+	portString := strconv.FormatUint(uint64(port), 10)
+	address := strings.Join([]string{host, portString}, ":")
+	l, err := net.Listen("tcp", address)
+	if err != nil {
+		fmt.Println("Failed to bind to port " + portString)
+		return err
 	}
 	defer l.Close()
 
@@ -31,7 +42,7 @@ func main() {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			return errors.New("error accepting connection")
 		}
 
 		go handleConnection(conn)
@@ -150,164 +161,4 @@ func handleRequest(request Request) Response {
 	default:
 		return Response{StatusCode: NotFound}
 	}
-}
-
-// ==== Response
-
-type Response struct {
-	StatusCode int
-	Headers    map[string]string
-	Body       []byte
-}
-
-const (
-	OK         = 200
-	Created    = 201
-	BadRequest = 400
-	NotFound   = 404
-	ServerErr  = 500
-)
-
-func (r Response) statusText() string {
-	switch r.StatusCode {
-	case OK:
-		return "OK"
-	case Created:
-		return "Created"
-	case BadRequest:
-		return "Bad Request"
-	case NotFound:
-		return "Not Found"
-	case ServerErr:
-		return "Internal Server Error"
-	default:
-		return ""
-	}
-}
-
-const protocol = "HTTP/1.1"
-
-func (r Response) encode() []byte {
-	var responseString string
-
-	// Status Line
-	responseString += fmt.Sprintf("%s %v %s", protocol, r.StatusCode, r.statusText()) + newline
-
-	// Headers
-	for k, v := range r.Headers {
-		responseString += fmt.Sprintf("%s: %s", k, v) + newline
-	}
-	responseString += newline
-
-	var result []byte
-	result = append(result, []byte(responseString)...)
-	if r.Body != nil {
-		result = append(result, r.Body...)
-		result = append(result, []byte(newline)...)
-	}
-
-	fmt.Println("Encoded response: ")
-	fmt.Println(string(result))
-	return result
-}
-
-func (r Response) withStringBody(s string, contentType string) Response {
-	return r.withBody([]byte(s), contentType)
-}
-
-func (r Response) withBody(data []byte, contentType string) Response {
-	byteBody := data
-
-	r.Body = byteBody
-
-	if r.Headers == nil {
-		r.Headers = make(map[string]string)
-	}
-	r.Headers["Content-Length"] = fmt.Sprintf("%v", len(byteBody))
-	r.Headers["Content-Type"] = contentType
-	return r
-}
-
-func (r Response) write(conn net.Conn) error {
-	_, err := conn.Write(r.encode())
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ==== Request
-
-type Request struct {
-	Verb    string
-	Path    string
-	Headers map[string]string
-	Body    []byte
-}
-
-func parseRequest(requestBytes []byte) (*Request, error) {
-	requestParts := strings.SplitN(string(requestBytes), newline+newline, 2)
-	if len(requestParts) == 0 {
-		return nil, errors.New("request is empty")
-	}
-
-	statusLineAndHeaders := strings.Split(requestParts[0], newline)
-	if len(statusLineAndHeaders) == 0 {
-		return nil, errors.New("status line not found")
-	}
-
-	var request Request
-	var err error
-
-	statusLine := statusLineAndHeaders[0]
-	request.Verb, request.Path, err = parseStatusLine(statusLine)
-	if err != nil {
-		return nil, err
-	}
-	if len(statusLineAndHeaders) < 2 {
-		return &request, nil
-	}
-	requestHeadersData := statusLineAndHeaders[1:]
-	request.Headers, err = extractHeaders(requestHeadersData)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(requestParts) > 1 {
-		request.Body = []byte(requestParts[1])
-	}
-
-	return &request, nil
-}
-
-func parseStatusLine(statusLine string) (term string, path string, err error) {
-	fields := strings.Fields(statusLine)
-	if len(fields) < 2 {
-		return "", "", errors.New("fields not found")
-	}
-
-	term = strings.TrimSpace(fields[0])
-	path = strings.TrimSpace(fields[1])
-	return term, path, nil
-}
-
-func extractHeaders(headerLines []string) (map[string]string, error) {
-	headers := make(map[string]string)
-
-	for _, line := range headerLines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			break
-		}
-
-		fields := strings.SplitN(line, ": ", 2)
-		if len(fields) < 2 {
-			continue
-		}
-
-		headers[fields[0]] = fields[1]
-	}
-
-	return headers, nil
 }
