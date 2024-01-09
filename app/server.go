@@ -3,34 +3,24 @@ package main
 import (
 	"bytes"
 	"errors"
-	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-const newline = "\r\n"
-
-var storageDirectory *string
-
-func main() {
-	storageDirectory = flag.String("directory", "storage", "Storage directory")
-	flag.Parse()
-
-	host := "0.0.0.0"
-	err := serve(host, 4221)
-	if err != nil {
-		fmt.Println("Error serving: ", err.Error())
-		os.Exit(1)
-	}
+type HTTPServer struct {
+	Host   string
+	Port   uint16
+	Router HTTPRouter
 }
 
-func serve(host string, port uint16) error {
-	portString := strconv.FormatUint(uint64(port), 10)
-	address := strings.Join([]string{host, portString}, ":")
+func (s *HTTPServer) Serve() error {
+	portString := strconv.FormatUint(uint64(s.Port), 10)
+	address := strings.Join([]string{s.Host, portString}, ":")
 	l, err := net.Listen("tcp", address)
 	if err != nil {
 		fmt.Println("Failed to bind to port " + portString)
@@ -45,18 +35,61 @@ func serve(host string, port uint16) error {
 			return errors.New("error accepting connection")
 		}
 
-		go handleConnection(conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	err := processConnection(conn)
+func (s *HTTPServer) handleConnection(conn net.Conn) {
+	err := s.Router.processConnection(conn)
 	if err != nil {
 		fmt.Println("Error handling connection: ", err.Error())
 	}
 }
 
-func processConnection(conn net.Conn) error {
+// HTTP Router
+// ---
+
+type HTTPRouter struct {
+	routes []HTTPRoute
+}
+
+func (router *HTTPRouter) RegisterRoute(route HTTPRoute) {
+	router.routes = append(router.routes, route)
+}
+
+func (router *HTTPRouter) GET(path string, handle func(Request) (Response, error)) {
+	router.RegisterRoute(HTTPRoute{
+		Verb:   "GET",
+		Path:   path,
+		Handle: handle,
+	})
+}
+
+func (router *HTTPRouter) POST(path string, handle func(Request) (Response, error)) {
+	router.RegisterRoute(HTTPRoute{
+		Verb:   "POST",
+		Path:   path,
+		Handle: handle,
+	})
+}
+
+func (router HTTPRouter) matchingRoute(request Request) *HTTPRoute {
+	for _, route := range router.routes {
+		if route.Verb == request.Verb {
+			path.Match(route.Path, request.Path)
+			return &route
+		}
+	}
+	return nil
+}
+
+type HTTPRoute struct {
+	Verb   string
+	Path   string
+	Handle func(Request) (Response, error)
+}
+
+func (router *HTTPRouter) processConnection(conn net.Conn) error {
 	defer conn.Close()
 
 	// Read bytes
@@ -73,8 +106,16 @@ func processConnection(conn net.Conn) error {
 	}
 	unwrapedRequest := *request
 
+	route := router.matchingRoute(unwrapedRequest)
+	if route == nil {
+		Response{StatusCode: NotFound}.write(conn)
+	}
+	response, err := route.Handle(unwrapedRequest)
+	if err != nil {
+		return err
+	}
+
 	// Write response
-	response := handleRequest(unwrapedRequest)
 	err = response.write(conn)
 	if err != nil {
 		return err
