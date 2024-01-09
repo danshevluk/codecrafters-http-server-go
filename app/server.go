@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -121,18 +122,31 @@ func handleRequest(request Request) Response {
 		filePath := strings.Join(pathComponents[1:], "/")
 		directory := *storageDirectory
 		path := filepath.Join(directory, filePath)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+
+		if request.Verb == "POST" {
+			// Read file contents from []byte and remove empty bytes
+			fileContents := request.Body
+			fileContents = bytes.Trim(fileContents, "\x00")
+
+			os.WriteFile(path, fileContents, 0644)
+			return Response{StatusCode: Created}
+		} else if request.Verb == "GET" {
+			// Reading file
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				return Response{StatusCode: NotFound}
+			}
+
+			fileContents, err := os.ReadFile(path)
+			if err != nil {
+				return Response{StatusCode: ServerErr}
+			}
+
+			return Response{
+				StatusCode: OK,
+			}.withBody(fileContents, "application/octet-stream")
+		} else {
 			return Response{StatusCode: NotFound}
 		}
-
-		fileContents, err := os.ReadFile(path)
-		if err != nil {
-			return Response{StatusCode: ServerErr}
-		}
-
-		return Response{
-			StatusCode: OK,
-		}.withBody(fileContents, "application/octet-stream")
 	default:
 		return Response{StatusCode: NotFound}
 	}
@@ -148,6 +162,7 @@ type Response struct {
 
 const (
 	OK         = 200
+	Created    = 201
 	BadRequest = 400
 	NotFound   = 404
 	ServerErr  = 500
@@ -157,6 +172,8 @@ func (r Response) statusText() string {
 	switch r.StatusCode {
 	case OK:
 		return "OK"
+	case Created:
+		return "Created"
 	case BadRequest:
 		return "Bad Request"
 	case NotFound:
@@ -223,8 +240,10 @@ func (r Response) write(conn net.Conn) error {
 // ==== Request
 
 type Request struct {
+	Verb    string
 	Path    string
 	Headers map[string]string
+	Body    []byte
 }
 
 func parseRequest(requestBytes []byte) (*Request, error) {
@@ -242,7 +261,7 @@ func parseRequest(requestBytes []byte) (*Request, error) {
 	var err error
 
 	statusLine := statusLineAndHeaders[0]
-	request.Path, err = extractPath(statusLine)
+	request.Verb, request.Path, err = parseStatusLine(statusLine)
 	if err != nil {
 		return nil, err
 	}
@@ -255,16 +274,22 @@ func parseRequest(requestBytes []byte) (*Request, error) {
 		return nil, err
 	}
 
+	if len(requestParts) > 1 {
+		request.Body = []byte(requestParts[1])
+	}
+
 	return &request, nil
 }
 
-func extractPath(statusLine string) (string, error) {
+func parseStatusLine(statusLine string) (term string, path string, err error) {
 	fields := strings.Fields(statusLine)
 	if len(fields) < 2 {
-		return "", errors.New("fields not found")
+		return "", "", errors.New("fields not found")
 	}
 
-	return strings.TrimSpace(fields[1]), nil
+	term = strings.TrimSpace(fields[0])
+	path = strings.TrimSpace(fields[1])
+	return term, path, nil
 }
 
 func extractHeaders(headerLines []string) (map[string]string, error) {
