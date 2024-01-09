@@ -113,7 +113,7 @@ func handleRequest(request Request) Response {
 		return Response{
 			StatusCode: OK,
 		}.withStringBody(userAgent, "text/plain")
-	case "file":
+	case "files":
 		if len(pathComponents) < 2 {
 			return Response{StatusCode: BadRequest}
 		}
