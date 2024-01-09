@@ -121,9 +121,7 @@ func handleRequest(request Request) Response {
 		filePath := strings.Join(pathComponents[1:], "/")
 		directory := *storageDirectory
 		path := filepath.Join(directory, filePath)
-		osStat, err := os.Stat(path)
-		fmt.Println("osStat: ", osStat)
-		if os.IsNotExist(err) {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return Response{StatusCode: NotFound}
 		}
 
