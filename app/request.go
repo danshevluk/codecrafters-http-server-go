@@ -12,6 +12,25 @@ type Request struct {
 	Body    []byte
 }
 
+func (request *Request) GetPathComponents() []string {
+	rawPathComponents := strings.Split(request.Path, "/")
+	pathComponents := make([]string, 0, len(rawPathComponents))
+
+	// Filter empty strings from path components
+	for _, component := range rawPathComponents {
+		if component == "" {
+			continue
+		}
+		pathComponents = append(pathComponents, component)
+	}
+
+	if len(pathComponents) == 0 {
+		pathComponents = append(pathComponents, "/")
+	}
+
+	return pathComponents
+}
+
 func parseRequest(requestBytes []byte) (*Request, error) {
 	requestParts := strings.SplitN(string(requestBytes), newline+newline, 2)
 	if len(requestParts) == 0 {
